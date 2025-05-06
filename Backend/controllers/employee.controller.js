@@ -4,13 +4,17 @@ const mongoose = require('mongoose');
 // Create Employee Profile
 exports.createEmployee = async (req, res) => {
   try {
-    // Parse file paths if files were uploaded
+    // Process uploaded files and set file paths.
     if (req.files) {
       if (req.files.resume) {
-        req.body.resume = req.files.resume[0].path;
+        req.body.resume = `uploads/${req.files.resume[0].filename}`;
       }
       if (req.files.profileImage) {
-        req.body.profileImage = req.files.profileImage[0].path;
+        req.body.profileImage = `uploads/${req.files.profileImage[0].filename}`;
+      }
+      if (req.files.galleryImages) {
+        // Map the array of files to an array of file paths.
+        req.body.galleryImages = req.files.galleryImages.map(file => `uploads/${file.filename}`);
       }
     }
 
@@ -23,8 +27,9 @@ exports.createEmployee = async (req, res) => {
       gender: req.body.gender,
       skills: req.body.skills,
       department: req.body.department,
-      resume: `uploads/${req.files.resume[0].filename}`,
-      profileImage:`uploads/${req.files.profileImage[0].filename}`,
+      resume: req.body.resume,
+      profileImage: req.body.profileImage,
+      galleryImages: req.body.galleryImages,  // Store array of gallery image paths.
       isActive: req.body.isActive,
       address: req.body.address
     });
@@ -71,48 +76,102 @@ exports.getAllEmployees = async (req, res) => {
 
 // Update employee profile (if needed)
 // Update employee by ID
+// controllers/employeeController.js
+
+
+
 exports.updateEmployee = async (req, res) => {
   try {
     const { id } = req.params;
-    let { fullName, email, phone, dob, gender, department, address, skills, isActive } = req.body;
+    let {
+      fullName,
+      email,
+      phone,
+      dob,
+      gender,
+      department,
+      address,
+      skills,
+      isActive,
+      // incoming list of retained gallery images (string[] or CSV)
+      galleryImages: retainedGalleryField
+    } = req.body;
 
+    // normalize skills
     if (typeof skills === 'string') {
       skills = skills.split(',').map(s => s.trim());
     }
 
+    // normalize retained gallery array
+    let retainedGallery = [];
+    if (retainedGalleryField) {
+      if (Array.isArray(retainedGalleryField)) {
+        retainedGallery = retainedGalleryField;
+      } else {
+        retainedGallery = retainedGalleryField.split(',').map(s => s.trim());
+      }
+    }
+
+    // fetch existing to compare
+    const existingEmp = await Employee.findById(id);
+    if (!existingEmp) {
+      return res.status(404).json({ success: false, message: "Employee not found" });
+    }
+
+    // figure out which old files to delete
+    const oldGallery = existingEmp.galleryImages || [];
+    const toDelete = oldGallery.filter(imgPath => !retainedGallery.includes(imgPath));
+    toDelete.forEach(imgPath => {
+      const fullPath = path.join(__dirname, '..', imgPath);
+      fs.unlink(fullPath, err => {
+        if (err) console.warn('Failed to delete image file:', fullPath, err);
+      });
+    });
+
+    // new uploaded gallery images
+    let newGalleryImages = [];
+    if (req.files?.galleryImages?.length) {
+      newGalleryImages = req.files.galleryImages.map(file => `uploads/${file.filename}`);
+    }
+
+    // build the update payload
     const updateData = {
       fullName,
       email,
       phone,
       dob,
       gender,
-      skills,
       department,
       address,
+      skills,
       isActive: isActive === 'true' || isActive === true,
+      // merge retained + newly uploaded
+      galleryImages: [...retainedGallery, ...newGalleryImages]
     };
 
-    // If files are updated
+    // file fields
     if (req.files?.resume?.[0]) {
       updateData.resume = `uploads/${req.files.resume[0].filename}`;
     }
     if (req.files?.profileImage?.[0]) {
       updateData.profileImage = `uploads/${req.files.profileImage[0].filename}`;
-    }   
-
-
-    const updated = await Employee.findByIdAndUpdate(id, updateData, { new: true });
-
-    if (!updated) {
-      return res.status(404).json({ success: false, message: "Employee not found" });
     }
 
-    res.status(200).json({ success: true, message: "Employee updated successfully", data: updated });
+    // perform update
+    const updated = await Employee.findByIdAndUpdate(id, updateData, { new: true });
+    res.status(200).json({
+      success: true,
+      message: "Employee updated successfully",
+      data: updated
+    });
+
   } catch (err) {
     console.error("Update Error:", err);
     res.status(500).json({ success: false, message: "Server error while updating employee" });
   }
 };
+
+
 
 
 // Delete employee profile

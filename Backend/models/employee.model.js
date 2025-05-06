@@ -1,3 +1,4 @@
+// models/Employee.js
 const mongoose = require('mongoose');
 
 const EmployeeSchema = new mongoose.Schema({
@@ -10,6 +11,8 @@ const EmployeeSchema = new mongoose.Schema({
   department: { type: String, required: true },
   resume: { type: String },         // store file path/name
   profileImage: { type: String },     // store file path/name
+  // New field for gallery images; an array of strings.
+  galleryImages: [{ type: String }],
   isActive: { type: Boolean, default: true },
   address: { type: String }
 }, { timestamps: true });

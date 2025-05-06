@@ -30,9 +30,14 @@ const EmployeeForm = ({ isEdit = false }) => {
     department: "",
     resume: null,
     profileImage: null,
+    // We'll store gallery images here. Each item can be:
+    //  - A new File object
+    //  - Or a string/URL if you're editing existing images
+    galleryImages: [],
     address: "",
     isActive: true,
   });
+
   const [errors, setErrors] = useState({});
   const [resumeURL, setResumeURL] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -47,6 +52,15 @@ const EmployeeForm = ({ isEdit = false }) => {
             `http://localhost:5000/api/employees/view/${id}`
           );
           const emp = data.employee;
+
+          // If the server returns already-uploaded gallery images as strings (URLs),
+          // store them in form.galleryImages so they appear in the preview.
+          // For example, if emp.galleryImages is an array of image paths/URLs.
+          // If it's something else on your backend, adjust accordingly.
+          const existingGallery = Array.isArray(emp.galleryImages)
+            ? emp.galleryImages
+            : [];
+
           setForm({
             fullName: emp.fullName || "",
             email: emp.email || "",
@@ -58,6 +72,7 @@ const EmployeeForm = ({ isEdit = false }) => {
             department: emp.department || "",
             resume: null, // new file only if user chooses
             profileImage: null,
+            galleryImages: existingGallery,
             address: emp.address || "",
             isActive: emp.isActive,
           });
@@ -87,7 +102,6 @@ const EmployeeForm = ({ isEdit = false }) => {
     else if (!validateEmail(form.email)) errs.email = "Enter a valid email";
 
     // Ensure that phone always includes the dial code.
-    // Here we extract the last 10 digits because that's what we expect after the dial code.
     const rawPhone = form.phone.replace(/\D/g, "").slice(-10);
     if (!rawPhone) errs.phone = "Phone is required";
     else if (!validatePhone(rawPhone))
@@ -131,6 +145,23 @@ const EmployeeForm = ({ isEdit = false }) => {
     }
   };
 
+  // Handle adding new gallery images
+  const handleAddGalleryImages = (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+
+    // If you want to append the new images to existing ones, do this:
+    // (We need to store them in a single array, which could contain both
+    // existing URLs (strings) and new File objects.)
+    setForm((prev) => ({
+      ...prev,
+      galleryImages: [...prev.galleryImages, ...files],
+    }));
+
+    // Optional: Clear the file input value so user can re-select if needed
+    e.target.value = "";
+  };
+
   // Skill toggle handler
   const toggleSkill = (skill) => {
     setForm((f) => {
@@ -144,13 +175,19 @@ const EmployeeForm = ({ isEdit = false }) => {
     });
   };
 
-  // inside your EmployeeForm component, add this handler:
-const removeProfileImage = () => {
-  setForm(f => ({ ...f, profileImage: null }));
-  setResumeURL(null); // if you’re also previewing resume; otherwise drop this
-};
+  // Remove profile image handler
+  const removeProfileImage = () => {
+    setForm((f) => ({ ...f, profileImage: null }));
+  };
 
-
+  // Remove one gallery image (by index)
+  const removeGalleryImage = (index) => {
+    setForm((f) => {
+      const newGallery = [...f.galleryImages];
+      newGallery.splice(index, 1);
+      return { ...f, galleryImages: newGallery };
+    });
+  };
 
   // Submit handler
   const handleSubmit = async (e) => {
@@ -160,9 +197,27 @@ const removeProfileImage = () => {
       return;
     }
     const formData = new FormData();
-    Object.entries(form).forEach(([k, v]) => {
-      if (k === "skills") v.forEach((s) => formData.append("skills", s));
-      else formData.append(k, v);
+
+    // Append everything to formData
+    Object.entries(form).forEach(([key, value]) => {
+      if (key === "skills") {
+        value.forEach((s) => formData.append("skills", s));
+      } else if (key === "galleryImages") {
+        // The array may contain existing string URLs (if editing) & new File objects
+        value.forEach((item) => {
+          if (typeof item === "string") {
+            // Possibly skip or handle differently if your backend can handle it.
+            // For example, you might have an array of "existingImages" for these
+            // or you can pass them as text:
+            formData.append("existingGalleryImages", item);
+          } else {
+            // If it's a File
+            formData.append("galleryImages", item);
+          }
+        });
+      } else {
+        formData.append(key, value);
+      }
     });
 
     try {
@@ -241,7 +296,6 @@ const removeProfileImage = () => {
             value={form.phone}
             onChange={(value, country) => {
               const dialCode = country.dialCode;
-              // If the dial code is removed, add it back.
               if (!value.startsWith(dialCode)) {
                 value = dialCode + value.replace(/^\+?/, "");
               }
@@ -255,14 +309,13 @@ const removeProfileImage = () => {
             buttonStyle={{
               border: errors.phone ? "1px solid #f56565" : "1px solid #d1d5db",
             }}
-            // Additional props can be added per your customization needs.
           />
           {errors.phone && (
             <p className="text-red-500 text-sm">{errors.phone}</p>
           )}
         </div>
 
-        {/* Date of Birth Input (placed below Phone) */}
+        {/* Date of Birth */}
         <div>
           <label className="block font-medium">
             Date of Birth<span className="text-red-500">*</span>
@@ -276,7 +329,9 @@ const removeProfileImage = () => {
               errors.dob ? "border-red-500" : "border-gray-300"
             }`}
           />
-          {errors.dob && <p className="text-red-500 text-sm">{errors.dob}</p>}
+          {errors.dob && (
+            <p className="text-red-500 text-sm">{errors.dob}</p>
+          )}
         </div>
 
         {/* Gender */}
@@ -383,53 +438,116 @@ const removeProfileImage = () => {
           )}
         </div>
 
-       {/* Profile Image */}
-<div>
-  <label className="block font-medium">
-    Profile Image<span className="text-red-500">*</span>
-  </label>
-
-  <input
-    type="file"
-    name="profileImage"
-    accept="image/jpeg, image/png"
-    onChange={handleFieldChange}
-    className="w-full mt-1 p-2 border rounded"
-  />
-  {errors.profileImage && (
-    <p className="text-red-500 text-sm">{errors.profileImage}</p>
-  )}
-
-  {form.profileImage && (
-    <div className="relative inline-block mt-2">
-      <img
-        src={URL.createObjectURL(form.profileImage)}
-        alt="Preview"
-        className="h-24 w-24 object-cover rounded"
-      />
-      <button
-        type="button"
-        onClick={removeProfileImage}
-        className="absolute -top-1 -right-1 bg-white rounded-full p-1 shadow hover:bg-gray-100 transition"
-      >
-        {/* simple SVG “X” icon */}
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          className="h-4 w-4 text-gray-600"
-          viewBox="0 0 20 20"
-          fill="currentColor"
-        >
-          <path
-            fillRule="evenodd"
-            d="M10 8.586l4.95-4.95a1 1 0 011.414 1.414L11.414 10l4.95 4.95a1 1 0 01-1.414 1.414L10 11.414l-4.95 4.95a1 1 0 01-1.414-1.414L8.586 10l-4.95-4.95A1 1 0 015.05 3.636L10 8.586z"
-            clipRule="evenodd"
+        {/* Profile Image */}
+        <div>
+          <label className="block font-medium">
+            Profile Image<span className="text-red-500">*</span>
+          </label>
+          <input
+            type="file"
+            name="profileImage"
+            accept="image/jpeg, image/png"
+            onChange={handleFieldChange}
+            className="w-full mt-1 p-2 border rounded"
           />
-        </svg>
-      </button>
-    </div>
-  )}
-</div>
+          {errors.profileImage && (
+            <p className="text-red-500 text-sm">{errors.profileImage}</p>
+          )}
+          {form.profileImage && (
+            <div className="relative inline-block mt-2">
+              <img
+                src={URL.createObjectURL(form.profileImage)}
+                alt="Profile Preview"
+                className="h-24 w-24 object-cover rounded"
+              />
+              <button
+                type="button"
+                onClick={removeProfileImage}
+                className="absolute -top-1 -right-1 bg-white rounded-full p-1 shadow hover:bg-gray-100 transition"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-4 w-4 text-gray-600"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M10 8.586l4.95-4.95a1 1 0 011.414 1.414L11.414 10l4.95 4.95a1 1 0 01-1.414 1.414L10 11.414l-4.95 4.95a1 1 0 01-1.414-1.414L8.586 10l-4.95-4.95A1 1 0 015.05 3.636L10 8.586z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              </button>
+            </div>
+          )}
+        </div>
 
+        {/* Gallery Images */}
+        <div>
+          <label className="block font-medium">Gallery Images</label>
+          {/* 
+            We don't rely on the old single file input with multiple attribute. 
+            Instead, we show a grid of existing images + a dedicated "Add Image" tile.
+          */}
+          <div className="flex flex-wrap gap-1 mt-2">
+            {/* Render each image in the state */}
+            {form.galleryImages.map((item, index) => {
+              // If item is a File, generate object URL for preview
+              // If item is a string, we treat it as an existing image URL
+              const isFile = typeof item !== "string";
+              const previewSrc = isFile
+                ? URL.createObjectURL(item)
+                : `http://localhost:5000/${item}`; 
+              // Adjust the URL as needed if your server path is different
+
+              return (
+                <div
+                  key={index}
+                  className="relative group w-24 h-24 border rounded overflow-hidden"
+                >
+                  <img
+                    src={previewSrc}
+                    alt={`Gallery Preview ${index + 1}`}
+                    className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeGalleryImage(index)}
+                    className="absolute top-1 right-1 p-1 bg-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      className="h-4 w-4 text-gray-600"
+                      viewBox="0 0 20 20"
+                      fill="currentColor"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M10 8.586l4.95-4.95a1 1 0 011.414 1.414L11.414 10l4.95 4.95a1 1 0 01-1.414 1.414L10 11.414l-4.95 4.95a1 1 0 01-1.414-1.414L8.586 10l-4.95-4.95A1 1 0 015.05 3.636L10 8.586z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                  </button>
+                </div>
+              );
+            })}
+
+            {/* "Add Image" tile */}
+            <label
+              className="w-24 h-24 border border-dashed border-gray-400 rounded flex items-center justify-center text-sm text-gray-600 cursor-pointer hover:bg-gray-50"
+              title="Click to add images"
+            >
+              + Add Image
+              <input
+                type="file"
+                accept="image/jpeg,image/png"
+                multiple
+                className="hidden"
+                onChange={handleAddGalleryImages}
+              />
+            </label>
+          </div>
+        </div>
 
         {/* Is Active Toggle */}
         <div className="flex items-center mt-4">

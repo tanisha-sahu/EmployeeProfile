@@ -41,18 +41,20 @@ router.put(
   "/update/:id",
   upload.fields([
     { name: 'resume', maxCount: 1 },
-    { name: 'profileImage', maxCount: 1 }
+    { name: 'profileImage', maxCount: 1 },
+    { name: 'galleryImages', maxCount: 10 }
   ]),
   employeeController.updateEmployee
 );
 
 
-// POST: create a new employee (with file uploads)
+
 router.post(
   '/create',
   upload.fields([
     { name: 'resume', maxCount: 1 },
-    { name: 'profileImage', maxCount: 1 }
+    { name: 'profileImage', maxCount: 1 },
+    { name: 'galleryImages', maxCount: 10 }
   ]),
   employeeController.createEmployee
 );
